@@ -88,7 +88,7 @@ public class ProducerApp {
 }
 ```
 
-Далее создадим структуру пакетов нашего проекта. В неё будут входить пакеты: `config`, `controller`, `model`, `producer`, `service`.
+Далее создадим структуру пакетов нашего проекта в `kafka-service/kafka-consumer/src/main/java/org/example`. В неё будут входить пакеты: `config`, `controller`, `model`, `producer`, `service`.
 
 В папке `resourses` создадим файл application.properties. Заполним его следующим содержимым:
 ```properties
@@ -226,7 +226,7 @@ public class ConsumerApp {
 }
 ```
 
-Далее создадим структуру пакетов нашего проекта. В неё будут входить пакеты: `model`, `consumer`.
+Далее создадим структуру пакетов нашего проекта в `kafka-service/kafka-producer/src/main/java/org/example`. В неё будут входить пакеты: `model`, `consumer`.
 
 В папке `resourses` создадим файл application.properties. Заполним его следующим содержимым:
 ```properties
