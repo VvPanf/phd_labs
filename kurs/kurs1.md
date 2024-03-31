@@ -38,3 +38,72 @@
 [Пример подключения к Redis (нам нужен пункт про HashOperations)](https://www.concretepage.com/spring-4/spring-data-redis-example)
 
 [Видеоуроки по созданию Spring-приложений с нуля](https://www.youtube.com/watch?v=FyZFK4LBjj0&list=PL0lO_mIqDDFUYDRzvocu5EsFGBqPM7CIw&index=1&ab_channel=%D0%93%D0%BE%D1%88%D0%B0%D0%94%D1%83%D0%B4%D0%B0%D1%80%D1%8C)
+
+### Пример обновления информации на странице
+Сделаем в Spring компонент со счётчиком. У него будет поле counter с числовым значением. Этот компонент мы будем отдавать на веб-страницу.
+```java
+@Component
+public class Counter {
+    private int counter = 0;
+
+    public void inc() {
+        counter++;
+    }
+
+    public int getCounter() {
+        return counter;
+    }
+ }
+```
+
+Сделаем контроллер, который по GET-запросу будет инкрементировать счётчик и отдавать клиенту ответ в виде json. Обязательно над классом нужно добавить аннотацию `@CrossOrigin`, чтобы иметь возможность запрашивать данные с веб-странички.
+```java
+@CrossOrigin
+@RestController
+@RequestMapping("/counter")
+public class MainController {
+    @Autowired
+    private Counter counter;
+
+    @GetMapping
+    public ResponseEntity<Counter> incrementAndGetCounter() {
+        counter.inc();
+        return ResponseEntity.ok(counter);
+    }
+}
+```
+
+Создадим веб-страницу, которая запрашивает данные с сервера с помощью JavaScript.
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Counter</title>
+</head>
+<body>
+    <!-- В теле выбираем элемент, куда будем записывать информацию, полученную с сервера -->
+    <!-- Задаём ему какое-нибудь id для последующего поиска по нему -->
+    <h1 id="app"/>
+</body>
+<!-- Пишем код, который запрашивае данные с сервера и отображат их на странице -->
+<script>
+    // Объявляем функцию, которая будет запрашивать данные с сервера
+    function fetchData() {
+        // С помощью встроенной функции fetch запрашиваем данные по url
+        fetch('http://localhost:8080/counter')
+        // Получаем ответ берём из него тело в формате json (В данном случае это будет: {"counter": 1})
+         .then(resp => resp.json())
+        // Записываем информацию из json в элеметн html
+         .then(json => {
+            // Получаем элемент по его id='app' и устанавливаем его текст (берём значение поля counter из json)
+            document.getElementById('app').textContent = json.counter;
+         });
+    }
+
+    // Для того, чтобы запрашивать данные каждую секунду, используем функцию setInterval
+    // Эта функция будет каждую секунду запускать fethData
+    setInterval(fetchData , 1000);
+</script>
+</html>
+```
