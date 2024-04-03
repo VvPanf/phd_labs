@@ -318,7 +318,15 @@ services:
     ports:
       - "27017:27017"
 ```
-Теперь можно запустить mongodb (через docker compose или черещ docker plugin для IDEA) и сервис и проверить, что вывод логов работает. Логи должны записываться как в консоль, так и в файл.
+Теперь можно запустить mongodb (через docker compose или черещ docker plugin для IDEA) и сервис и проверить, что вывод логов в консоль работает.
+Важно при запуске закомментировать в файле `logback-spring.xml` строчки (<!-- --> - многострочный комментарий):
+```xml
+<!--
+    <logger name="org.zalando.logbook.Logbook" level="TRACE">
+        <appender-ref ref="LOGSTASH"/>
+    </logger> 
+-->
+```
 ![Проверка работоспособности приложения](./screenshots/1.png)
 
 ### 5. Конфигурация Elastic
@@ -362,7 +370,6 @@ services:
       LS_JAVA_OPTS: "-Xms512m -Xmx512m"
     volumes:
       - ./logstash/logstash.conf:/usr/share/logstash/logstash.conf
-      - ../../logs/service-logs.log:/var/log/service-logs.log
     command: logstash -f /usr/share/logstash/logstash.conf
     ports:
       - "5000:5000/tcp"
@@ -456,7 +463,7 @@ output {
     - на удаление данных
     - ошибочный (по несуществующему пути)
 - Запустить Kibana и создать новый Data View
-- Настроить фильтры в Kibana чтобы отображались запросы по следующим параметрам:
+- Настроить фильтры в Kibana чтобы отображались запросы по следующим параметрам (нужно сделать все пункты):
     1. Отобразить все поля timestamp и message тех запросов, у которых url не пустой;
     2. Отобразить все записи, у которых origin=remote;
     3. Отобразить поля timestamp, status, origin, thread_name и message для тех запросов, у которых origin=local или status=200, либо 201, либо 404.
