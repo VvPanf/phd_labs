@@ -1,355 +1,323 @@
-# Лабораторная работа 1
+# Лабораторная работа 5
 ## Тема: Работа с брокером сообщения Kafka
 
-**Цель:** С помощью языка программирования Java и фреймворка Spring Boot создать два веб-сервиса, которые обмениваются между собой сообщениями через Kafka.
+**Цель:** Изучение основ документоориентированной СУБД MongoDB
 
-### 1. Создание Maven-проекта
-Первым делом необходимо создать новый Maven-проект, задать ему название и выбрать для него версию JDK.
+### 1. Основы MongoDB
 
-![Создание maven-проекта](./screenshots/1.png)
+Базовым компонентом MongoDB является документ, очень похожий на JSON. Технически это BSON, который содержит некоторые дополнительные данные (например, datetime), которые недопустимы в JSON.
 
-### 2. Заполнение главного xml-файла
-В файле `pom.xml` необходимо поделючить библиотеки для всех модулей проекта. Такими библиотеками будут являться библиотеки спринга и библиотека кафки. Добавим в файл внутрь элемента `<project>` следующие строчки.
+Мы можем рассматривать документ как запись в реляционной базе данных. Документы помещаются в коллекции, которые соответствует концепции таблиц в реляционной базе данных. 
 
-Для наследования проекта от спринг-проекта:
-```xml
-<parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.1.7</version>
-</parent>
+Коллекции хранятся в базах данных.
+
+Подробная информация о MongoDB представлена на официальном сайте: https://www.mongodb.com 
+
+
+### 2. Compass
+
+Для подключение к серверу MongoDB и взаимодействия с ним существует Compass. Он позволяет взаимодействовать с MongoDB через графический интерфейс, подключаться к ней и писать запросы.
+
+![Графический интерфейс Compass](./screenshots/1.png)
+
+
+### 3. Запуск сервера MongoDB через Docker
+
+Для запуска сервера через докер можно ввести команду
+```bash
+docker run --name my-mongo -dit -p 27017:27017 -rm mongo:latest
 ```
 
-Для подключения библиотек:
-```xml
-<dependencies>
-    <!-- Spring Web для приёма web-запросов -->
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <!-- Spring Kafka для подключения к Kafka -->
-    <dependency>
-        <groupId>org.springframework.kafka</groupId>
-        <artifactId>spring-kafka</artifactId>
-    </dependency>
-    <!-- Lombok для упрощения создания классов -->
-    <dependency>
-        <groupId>org.projectlombok</groupId>
-        <artifactId>lombok</artifactId>
-        <optional>true</optional>
-    </dependency>
-</dependencies>
+
+### 4. Подключение к серверу
+
+Для подключение к серверу в Compass нужно ввести следующий URL: `mongodb://localhost:27017`
+
+При необходимости нужно открыть Advanced Connection Options и ввести логин, пароли и базу данных для подключения.
+
+![Подключение к MongoDB](./screenshots/2.png)
+
+
+### 5. Начало работы
+
+Для написания всех команд, описанных далее существует терминал. Он расположен в нижней части окна Compass.
+
+Для того, чтобы посмотреть все базы данных, можно ввести команду:
+```
+>>> show dbs
+
+admin   40.00 KiB
+config  60.00 KiB
+local   40.00 KiB
 ```
 
-Для сборки приложения в JAR-файл:
-```xml
-<build>
-    <plugins>
-        <plugin>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-maven-plugin</artifactId>
-            <configuration>
-                <excludes>
-                    <exclude>
-                        <groupId>org.projectlombok</groupId>
-                        <artifactId>lombok</artifactId>
-                    </exclude>
-                </excludes>
-            </configuration>
-        </plugin>
-    </plugins>
-</build>
+Узнать имя текущей базы данных:
+```
+>>> db
+
+test
 ```
 
-После этого необходимо удалить папку `src` из проекта со всем его содержимим.
+Для переключение на другую коллекцию есть команда `use`. Если базы с таким именем нет, то она создастся автоматически.
+```
+>>> use <db-name>
+>>> use admin
+>>> use pets
 
-### 3. Создаём модуль kafka-producer
+'switched to db pets'
+```
 
-Правой кнопкой по главному проекту и выбираем пункт меню, который показан на рисунке.
 
-![kafka-producer](./screenshots/2.png)
+### 6. Добавление документов
 
-Вводим название модуля - `kafka-producer`. В качестве Parent выбираем `kafka-serice`. Нажимаем создать модель.
+Добавление документа в коллекцию
+```js
+>>> db.pets.insertOne({name: "Luna", type: "dog", breed: "Havanese", age: 8})
 
-Модуль будет принимать объект в веб-запросе и передавать, ставить у него время приёма и передавать его в kafka.
-
-У каждого модуля есть свой файл `pom.xml`, где можно подключать зависимости, специфичные для конкретного модуля. В данном случае никаких дополнительных зависимостей нам подключать не нужно.
-
-### 4. Создаём классы модуля kafka-producer
-
-Класс `Main`, который был автоматически сгенерирован при создании модуля удалим и созданим новый класс `ProducerApp`, где инициализируем и запустим наше Spring-приложение:
-```java
-@SpringBootApplication
-public class ProducerApp {
-    public static void main(String[] args) {
-        SpringApplication.run(ProducerApp.class, args);
-    }
+{
+  acknowledged: true,
+  insertedId: ObjectId("63ee0ab7686621530933257c")
 }
 ```
 
-Далее создадим структуру пакетов нашего проекта в `kafka-service/kafka-producer/src/main/java/org/example`. В неё будут входить пакеты: `config`, `controller`, `model`, `producer`, `service`.
+В Compass при нажатии на кнопку обновления появится новый созданный документ:
 
-В папке `resourses` создадим файл application.properties. Заполним его следующим содержимым:
-```properties
-# Порт на котором будет запускаться сервер
-server.port=8080
-# Название топика в kafka
-topic.name=topic.books
+![Созданный документ](./screenshots/3.png)
+
+Добавление нескольких документов в коллекцию. Тут добавляется массив из 1000 элементов.
+```js
+db.pets.insertMany(
+  Array.from({ length: 10000 }).map((_, index) => ({
+    name: ["Luna", "Fido", "Fluffy", "Carina", "Spot", "Beethoven", "Baxter", "Dug", "Zero", "Santa's Little Helper","Snoopy",][index % 9],
+    type: ["dog", "cat", "bird", "reptile"][index % 4],
+    age: (index % 18) + 1,
+    breed: [ "Havanese", "Bichon Frise", "Beagle", "Cockatoo", "African Gray", "Tabby", "Iguana",][index % 7], index: index,
+  }))
+);
 ```
 
-В пакете `config` создадим класс `KafkaConfig`. Помечаем его аннотацией `@Configuration`. В нём получаем `TOPIC_NAME` из файла application.properties, создаём бины для инициализации подключения к kafka и создаём новый топик с именем в `TOPIC_NAME`.
-```java
-@Configuration
-public class KafkaConfig {
-    @Value("${topic.name}")
-    private String TOPIC_NAME;
-    @Autowired
-    private KafkaProperties kafkaProperties;
 
-    @Bean
-    public ProducerFactory<String, String> producerFactory() {
-        Map<String, Object> properties = kafkaProperties.buildProducerProperties();
-        return new DefaultKafkaProducerFactory<>(properties);
-    }
+### 7. Поиск документов
 
-    @Bean
-    public KafkaTemplate<String, String> kafkaTemplate() {
-        return new KafkaTemplate<>(producerFactory());
-    }
+Поиск документов осуществляется функциями `find` и `findOne`. Внутри функций указываются фильтры, по которым надо производить поиск.
+```js
+// Вернуть первую запись в коллекции
+>>> db.pets.findOne();
 
-    @Bean
-    public NewTopic topic() {
-        return TopicBuilder
-                .name(TOPIC_NAME)
-                .partitions(1)
-                .replicas(1)
-                .build();
-    }
+{
+  _id: ObjectId("63ee0ab7686621530933257c"),
+  name: 'Luna',
+  type: 'dog',
+  breed: 'Havanese',
+  age: 8
+}
+
+// Вернуть первую запись, подходящую под условие
+>>> db.pets.findOne({ index: 3 });
+
+{
+  _id: ObjectId("63ee0f3d6866215309332580"),
+  name: 'Carina',
+  type: 'reptile',
+  age: 4,
+  breed: 'Cockatoo',
+  index: 3
+}
+
+// Вернуть первую запись, подходящую под условие
+>>> db.pets.findOne({ name: "Spot", type: "dog" });
+
+{
+  _id: ObjectId("63ee0f3d6866215309332581"),
+  name: 'Spot',
+  type: 'dog',
+  age: 5,
+  breed: 'African Gray',
+  index: 4
+}
+
+// Вернуть все записи в коллекции, подходящие под условие
+>>> db.pets.find({ type: "dog" });
+
+{
+  _id: ObjectId("63ee0ab7686621530933257c"),
+  name: 'Luna',
+  type: 'dog',
+  breed: 'Havanese',
+  age: 8
+}
+{
+  _id: ObjectId("63ee0f3d686621530933257d"),
+  name: 'Luna',
+  type: 'dog',
+  age: 1,
+  breed: 'Havanese',
+  index: 0
 }
 ```
 
-В пакете `model` создаём класс нашего объекта, который будем принимать от пользователя и передавать в kafka. Аннотации библиотеки lombok `@NoArgsConstructor` и `@AllArgsConstructor` создадут для класса конструкторы по умолчанию и со всеми параметрами. Аннотация `@Data` сгенерирует гетеры, сеттеры, методы toString, equals и hashCode.
-```java
-@NoArgsConstructor
-@AllArgsConstructor
-@Data
-public class Book {
-    private Integer id;
-    private String title;
-    private String author;
-    private LocalDateTime receivedDate;
+Для подсчёта числа документов в коллекции есть функция `countDocuments` и `count`:
+```js
+// Количество документов в коллекции
+>>> db.pets.countDocuments();
+10000
+
+// Количество документов в коллекции, подходящих под условие
+>>> db.pets.count({ type: "dog" });
+2501
+```
+
+Для ограничения числа документов в результате есть функция `limit`. Для "пролистывания" документов из коллекции есть оператор `it`. Примеры использования:
+```js
+// Ограничение результата
+>>> db.pets.find({ type: "dog" }).limit(40);
+... выведется 20 документов
+>>> it
+... выведется ещё 20 документов
+>>> it
+no cursor
+```
+
+Материализация запроса (преобразование результата (курсора) в массив данных) осуществляется функцией `toArray`.
+```js
+// Материализация запроса
+>>> db.pets.find({ type: "dog" }).limit(40).toArray();
+[
+  {
+    _id: ObjectId("63ee0ab7686621530933257c"),
+    name: 'Luna',
+    type: 'dog',
+    breed: 'Havanese',
+    age: 8
+  },
+  ...
+]
+```
+
+Операторы запроса:
+- `$gt` - greater than
+- `$gte` - greater than or equal to
+- `$lt` - less than
+- `$lte` - less than or equal to
+- `$eq` - equals (не обязательно)
+- `$ne` - not equals
+- `$in` – содержится в массиве
+- `$nin` – не содержится в массиве
+
+Пример:
+```js
+// Оператор $gt
+>>> db.pets.count({ type: "cat", age: { $gt: 12 } });
+833
+
+// Оператор $ne
+>>> db.pets.find({ type: { $ne: "dog" }, name: "Fido",});
+... результаты поиска
+
+// Логический оператор "И"
+>>> db.pets.find({
+  type: "bird",
+  $and: [
+    { age: { $gte: 4 } }, 
+    { age: { $lte: 8 } }
+  ],
+});
+... результаты поиска
+```
+
+
+### 8. Сортировка и проекция
+
+Для сортировки существует функция `sort`. В ней указывается, по какому полю производить сортировку и в каком порядке. 1 - сортировка по возрастанию. -1 - сортировка по убыванию.
+```js
+// Сортировка по убыванию
+>>> db.pets.find({ type: "dog" }).sort({ age: -1 });
+... результаты поиска
+```
+
+Для проекции добавляется ещё один блок в функцию `find`. Для исключения полей указывается значение false или 0. Для включения полей указывается значение true или 1. Поле _id автоматически включается в каждый результат. Для его отключения нужно явно указать id: 0.
+```js
+// Проекция по полям _id, name и breed
+>>> db.pets.find({ type: "dog" }, { name: 1, breed: 1 });
+{
+  _id: ObjectId("63ee0ab7686621530933257c"),
+  name: 'Luna',
+  breed: 'Havanese'
+}
+...
+
+// Проекция по полям name и breed
+>>> db.pets.find({ type: "dog" }, { name: 1, breed: 1, _id: 0 });
+{
+  name: 'Luna',
+  breed: 'Havanese'
+}
+...
+
+// Проекция с true и false
+>>> db.pets.find({ type: "dog" }, { name: true, breed: true, _id: false });
+{
+  name: 'Luna',
+  breed: 'Havanese'
+}
+...
+
+// Проекция со всеми полями, кроме _id
+>>> db.pets.find({ type: "dog" }, { _id: 0 });
+{
+  name: 'Luna',
+  type: 'dog',
+  breed: 'Havanese',
+  age: 8
+}
+...
+```
+
+
+### 9. Обновление данных
+
+Для обновления данных существуют функции `updateOne` и `updateMany`. Первым параметром указывается фильтр, по которому отбираются записи на обновление. Вторым параметром указывается поля, которые нужно поменять через оператор `$set`. Для увеличения значения на 1 можно применить оператор `$inc`.
+```js
+// Обновление поля owner через оператор $set
+>>> db.pets.updateOne(
+  { type: "dog", name: "Luna", breed: "Havanese" },
+  { $set: { owner: "Brian Holt" } }
+);
+
+{
+  acknowledged: true,
+  insertedId: null,
+  matchedCount: 1,
+  modifiedCount: 1,
+  upsertedCount: 0
+}
+
+// Обновление поля age через оператор $inc
+>>> db.pets.updateMany({ type: "dog" }, { $inc: { age: 1 } });
+
+{
+  acknowledged: true,
+  insertedId: null,
+  matchedCount: 2501,
+  modifiedCount: 2501,
+  upsertedCount: 0
 }
 ```
 
-В пакете `controller` создадим класс `BookController` и пометим его аннотацией `@RestController`. Здесь будет принимать пост-запрос с JSON-объектом в теле запроса и передавать его в `BookService` на обработку.
-```java
-@RestController
-public class BookController {
-    @Autowired
-    private BookService bookService;
-    
-    @GetMapping
-    public String getRequest() {
-        return "All works!";
-    }
-    
-    @PostMapping
-    public String postRequest(@RequestBody Book book) {
-        return bookService.processBook(book);
-    }
+
+### 10. Удаление данных
+
+Для удаления данных есть функции `deleteOne` и `deleteMany`. В параметрах указываются фильтры, по которым удаляются записи.
+```js
+>>> db.pets.deleteOne({ type: "dog" });
+{
+  acknowledged: true,
+  deletedCount: 1
+}
+
+>>> db.pets.deleteMany({ type: "reptile", breed: "Havanese" });
+{
+  acknowledged: true,
+  deletedCount: 357
 }
 ```
-
-В пакете `service` создадим класс `BookService` и пометим его аннотацией `@Service`. Аннотация `@Slf4j` библиотеки lombok даст возможность использовать логирование в классе через переменную `log`. В этом классе мы выставляем дату приёма сообщения от клиента, выводим в логи сообщение, что приняли объект и передаём сообщение на отправку в producer.
-```java
-@Slf4j
-@Service
-public class BookService {
-    @Autowired
-    private BookProducer bookProducer;
-    
-    public String processBook(Book book) {
-        book.setReceivedDate(LocalDateTime.now());
-        log.info("Books is received by kafka-producer: {}", book);
-        return bookProducer.send(book);
-    }
-}
-```
-
-В пакете `producer` создадим класс `BookProducer`. Пометим его аннотацией `@Component`. В этом классе получаем название топика из конфига. Внедряем зависимости для `KafkaTemplate`, который отправит нам сообщение в kafka и `ObjectMapper`, который сконвертирует объектв в JSON-формат. В методе `send` просто конвертируем объект и отправляем его. После чего выводим сообщение в логи, что всё обработано и возвращаем строку с положительным результатом.
-```java
-@Slf4j
-@Component
-public class BookProducer {
-    @Value("${topic.name}")
-    private String orderTopic;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-    @Autowired
-    private KafkaTemplate<String, String> kafkaTemplate;
-
-    public String send(Book book) {
-        try {
-            String message = objectMapper.writeValueAsString(book);
-            kafkaTemplate.send(orderTopic, message);
-
-            log.info("Book produced {}", message);
-
-            return "Message sent";
-        } catch (JsonProcessingException e) {
-            return "Error parse json";
-        }
-    }
-}
-```
-
-На этом написание модуля `kafka-producer` окончено. Можно запустить приложение и посмотреть, что никаких ошибок нет и всё работает.
-
-### 5. Создаём модуль kafka-consumer
-
-Аналогично предыдущему модулю нажимаем правой кнопкой на проекте `kafka-service` и добавляем в него новый модуль с названием `kafka-consumer`.
-
-Модуль будет читать сообщение из топика в kafka и выводить его в консоль.
-
-
-### 6. Создаём классы модуля kafka-consumer
-
-Класс `Main`, который был автоматически сгенерирован при создании модуля удалим и созданим новый класс `ConsumerApp`, где инициализируем и запустим наше Spring-приложение:
-```java
-@SpringBootApplication
-public class ConsumerApp {
-    public static void main(String[] args) {
-        SpringApplication.run(ConsumerApp.class, args);
-    }
-}
-```
-
-Далее создадим структуру пакетов нашего проекта в `kafka-service/kafka-consumer/src/main/java/org/example`. В неё будут входить пакеты: `model`, `consumer`.
-
-В папке `resourses` создадим файл application.properties. Заполним его следующим содержимым:
-```properties
-# Порт на котором будет запускаться сервер
-server.port=8081
-# Название топика в kafka
-topic.name=topic.books
-spring.kafka.consumer.group-id=default
-```
-
-В пакет `model` можно скопировать класс из пакета `model` модуля `kafka-producer`.
-
-В пакете `consumer` создадим класс `BookConsumer`. Пометим его аннотацией `@Component`. Внедрим для него зависимость от `ObjectMapper` для конвертации из JSON-строки в java-объект. Метод `consumeMessage` помечен аннотацией `@KafkaListener`, которая передаёт в метод очередную строку из топика kafka. Полученный сконвертированный объект выводим в консоль.
-```java
-@Slf4j
-@Component
-public class BookConsumer {
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @KafkaListener(topics = "${topic.name}")
-    public void consumeMessage(String message) throws JsonProcessingException {
-        Book book = objectMapper.readValue(message, Book.class);
-        log.info("Book consumed: {}", book);
-    }
-}
-```
-
-### 7. Запуск сервера с kafka через docker-compose
-
-В корне проекта создадим файл docker-compose.yml и вставим в него следующий текст:
-```yml
-version: "3.7"
-
-services:
-  zookeeper:
-    image: zookeeper:3.7.0
-    container_name: zookeeper
-    restart: always
-    networks:
-      - kafka-net
-    ports:
-      - "2181:2181"
-
-  kafka:
-    image: obsidiandynamics/kafka
-    container_name: kafka
-    restart: always
-    networks:
-      - kafka-net
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: DOCKER_INTERNAL:PLAINTEXT,DOCKER_EXTERNAL:PLAINTEXT
-      KAFKA_LISTENERS: DOCKER_INTERNAL://:29092,DOCKER_EXTERNAL://:9092
-      KAFKA_ADVERTISED_LISTENERS: DOCKER_INTERNAL://kafka:29092,DOCKER_EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9092
-      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER_INTERNAL
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      KAFKA_BROKER_ID: 1
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      - zookeeper
-
-  kafdrop:
-    image: obsidiandynamics/kafdrop
-    container_name: kafdrop
-    restart: always
-    networks:
-      - kafka-net
-    ports:
-      - "9000:9000"
-    environment:
-      KAFKA_BROKERCONNECT: "kafka:29092"
-    depends_on:
-      - "kafka"
-
-networks:
-  kafka-net:
-    name: kafka-net
-    driver: bridge
-```
-
-Переходим в консоль и заходим в папке проекта. Пишем команду `docker compose up -d`. Docker предварительно должен быть установлен. Для остановки можно ввести команду `docker compose down`.
-
-- Kafka поднимется на порту 9092
-- Kafdrop поднимется на порту 3000
-
-После этого можно запустить модули
-- `kafka-producer`
-- `kafka-consumer`
-
-И проверить их работоспособность:
-![Result 1](./screenshots/3.png)
-![Result 2](./screenshots/4.png)
-![Result 3](./screenshots/5.png)
-![Result 4](./screenshots/6.png)
-
-
-### Индивидуальное задание
-
-- Сделать по вышеописанному примеру программу со своей предметной областью
-- Добавить в kafka-consumer логику сохранения принятых данных согласно варианту
-- Запустить docker-compose.yml файл с кафкой
-- Запустить kafka-consumer и kafka-producer, удостовериться, что всё работает
-- Проверить создание топика и его заполнение через kafdrop, в отчёте сделать пояснения
-- В докер-конейнере kafka найти файл, в котором хранятся значения, записанные в топик (/var/lib/kafka/logs/{ваш топик}-0/00000000000000000000.log). Показать содержимое файла
-
-### Варианты индивидуального задания:
-1. В файл csv;
-2. В файл txt, разделитель - табуляция (табличный формат);
-3. В файл html в формате таблицы;
-4. В in-memory базу данных hsql;
-5. В файл xlsx;
-6. В файл html;
-7. В файл docx;
-8. В in-memory базу данных h2.
-
-
-### Содержание отчёта
-
-1. Титульный лист
-2. Цель работы
-3. Код программы (в заголовке название файла)
-4. Скрины демонстрации работы программы (отправка сообщения в kafka-producer; лог, что сообщение принято; наличие сообщения в kafdrop; лог приёма сообщения kafka-consumer; файл с сохранённым сообщением)
-5. Поямнения по поводу процесса обработки сообщения (что откуда куда передаётся и где сохраняется)
-6. Вывод
