@@ -1,4 +1,4 @@
-# Лабораторная работа 5
+# Лабораторная работа 1
 ## Тема: Работа с брокером сообщения Kafka
 
 **Цель:** Изучение основ документоориентированной СУБД MongoDB
@@ -86,7 +86,7 @@ test
 
 Добавление нескольких документов в коллекцию. Тут добавляется массив из 1000 элементов.
 ```js
-db.pets.insertMany(
+>>> db.pets.insertMany(
   Array.from({ length: 10000 }).map((_, index) => ({
     name: ["Luna", "Fido", "Fluffy", "Carina", "Spot", "Beethoven", "Baxter", "Dug", "Zero", "Santa's Little Helper","Snoopy",][index % 9],
     type: ["dog", "cat", "bird", "reptile"][index % 4],
