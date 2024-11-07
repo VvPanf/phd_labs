@@ -48,6 +48,8 @@
 │   │   │       │   └── BookRepository.java 
 │   │   │       └── Application.java
 │   │   └── resources/
+│   │       ├── static
+│   │       │   └── index.html 
 │   │       └── application.properties
 │   └── test/
 │       └── ...
@@ -131,7 +133,7 @@ public interface BookRepository extends MongoRepository<Book, String> {
 }
 ```
 
-Интерфейс помечен аннотацией `@Repository`, которая делает из него бин. Интерфейс наследуется от интерфейса `MongoRepository`, в котором уже содержатся основные методы для работы с MongoDB. Внутри интерфейса можно через специальные ключевые слова описать собственные методы для взаимодействия с MongoDB. Особенности именования методов представлены [тут](https://github.com/spring-projects/spring-data-commons/blob/2.4.5/src/main/java/org/springframework/data/repository/query/parser/PartTree.java#L59).
+Интерфейс помечен аннотацией `@Repository`, которая делает из него бин. Интерфейс наследуется от интерфейса `MongoRepository`, в котором уже содержатся основные методы для работы с MongoDB. Внутри интерфейса можно через специальные ключевые слова описать собственные методы для взаимодействия с MongoDB. Особенности именования методов можно найти в документации.
 
 Если нужно задать выполнение метода через синтаксис запросов MongoDB, можно воспользоваться аннотацией `@Query`, помещённой над методом и в ней описать всё, что нужно получить из базы данных.
 
@@ -316,7 +318,37 @@ public class GenerateBooks implements CommandLineRunner {
 Аннотация `@Component` делает из класса бин. Класс реализует интерфейс `CommandLineRunner`, который методом `run` обеспечит запуск кода внутри него ровно один раз - при старте приложения. Запись в бд производим при помощи класса `BookService`.
 
 
-### 10. Проверка работы приложения
+### 10. Настройки MVC
+
+Для поддержки фронтенд части приложения необходимо добавить класс конфигурации со следующими настройками:
+```java
+@Configuration
+public class MvcConfig implements WebMvcConfigurer {
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/").addResourceLocations("classpath:/static/index.html");
+        registry.addResourceHandler("/**").addResourceLocations("classpath:/static/");
+    }
+}
+```
+
+
+### 11. Конфигурационный файл приложения
+
+Файл `application.properties` должен содержать следующие настройки конфигурации для подключения к MongoDB:
+```properties
+spring.data.mongodb.host=localhost
+spring.data.mongodb.port=27017
+spring.data.mongodb.authentication-database=admin
+spring.data.mongodb.username=...
+spring.data.mongodb.password=...
+spring.data.mongodb.database=...
+spring.data.mongodb.auto-index-creation=true
+logging.level.org.springframework.data.mongodb=DEBUG
+```
+
+
+### 12. Проверка работы приложения
 
 Для проверки работы можно использовать Postman или расширение Thunder client для редактора кода VS Code.
 
@@ -325,6 +357,24 @@ public class GenerateBooks implements CommandLineRunner {
 В интерфейсе необходимо выбрать HTTP-метод, вписать адрес и тело запроса, после чего нужно нажать на кнопку Send. В окне ниже покажется ответ от сервера.
 
 
+### 13. Подключение фронтенд части к приложению
+
+Для подключения фронтенд части необходимо убедиться, что в контроллере присутствуют следующие обработчики:
+1. Обработчик GET-запроса на получение страницы с объектами
+2. Обработчик GET-запроса на получение объекта по ID
+3. Обработчик POST-запроса на добавление нового объекта
+4. Обработчик PUT-запроса на изменение объекта по ID
+5. Обработчик DELETE-запроса на удаление объекта по ID
+
+Всё обработчики должны обрабатывать один и тот же endpoint.
+
+Структура объекта, отдаваемого пользователю, должна быть плоской (не должно быть вложенных объектов и массивов). Для приведения вашего документа к нужному виду используйте конвертацию в DTO. Можно использовать ObjectMapper, MapStruct или конвертировать объекты вручную.
+
+Чтобы подключить фронтенд часть приложения, необходимо скопировать папку static вот из ресурсов этого репозитория: https://github.com/VvPanf/mongodemo
+
+
 ### Индивидуальное задание
 
-Необходимо реализовать простое CRUD-приложение с использованием фреймворка Spring Boot и MongoDB по вашей предметной области.
+1. Необходимо реализовать простое CRUD-приложение с использованием фреймворка Spring Boot и MongoDB по вашей предметной области.
+2. Проверить работоспособность приложения при помощи HTTP-клиента, например, Postman
+3. Провести интеграцию приложения с графическим интерфейсом
