@@ -345,6 +345,16 @@ services:
     depends_on:
       - "kafka"
 
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    restart: always
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=example
+    ports:
+      - "27017:27017"
+
 networks:
   kafka-net:
     name: kafka-net
