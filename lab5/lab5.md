@@ -307,7 +307,6 @@ services:
   zookeeper:
     image: zookeeper:3.7.0
     container_name: zookeeper
-    restart: always
     networks:
       - kafka-net
     ports:
@@ -316,7 +315,6 @@ services:
   kafka:
     image: obsidiandynamics/kafka
     container_name: kafka
-    restart: always
     networks:
       - kafka-net
     ports:
@@ -335,7 +333,6 @@ services:
   kafdrop:
     image: obsidiandynamics/kafdrop
     container_name: kafdrop
-    restart: always
     networks:
       - kafka-net
     ports:
@@ -348,7 +345,8 @@ services:
   mongodb:
     image: mongo:latest
     container_name: mongodb
-    restart: always
+    networks:
+      - kafka-net
     environment:
       - MONGO_INITDB_ROOT_USERNAME=root
       - MONGO_INITDB_ROOT_PASSWORD=example
