@@ -1,483 +1,457 @@
 # Лабораторная работа 6
-## Тема: Работа с ElasticSearch, Logstash и Kibana
+## Тема: Мониторинг приложения при помощи Prometheus и Grafana
 
-**Цель:** С помощью языка программирования Java и фреймворка Spring Boot создать CRUD-приложение, логи которого будут записываться в ElasticSearch.
+**Цель:** Ознакомиться с базой данных временных рядов Prometheus. Настроить мониторинг Spring Boot приложения. Визуализировать данные мониторинга при помощи дашбордов в Grafana.
 
-### 1. Создание проекта
+### 1. Что такое мониторинг
 
-За основу проекта можно взять веб-сервис, разработанный в процессе 3-ей лабораторной работы прошлого семеста.
+Мониторинг приложения — это процесс сбора, измерения, анализа и визуализации данных о работе приложений и их компонентов с целью обеспечения их надёжности, производительности и эффективности.
 
-### 2. Подключение библиотек
+Мониторинг позволяет в режиме реального времени следить за состоянием и поведением приложений, а также выявлять и устранять проблемы и узкие места, которые могут влиять на работу приложения.
 
-В файле `pom.xml` можно подключить библиотеку Lombok и сделать код более красивым:
+
+### 2. Введение в Prometheus
+
+Prometheus — бесплатная система мониторинга серверов и программ с открытым исходным кодом. Она может собирать информацию о состоянии серверов и систем (Linux-сервера, Apache-сервера, сервера баз данных), а также получать предупреждения о проблемах.
+
+Prometheus получает метрики при помощи HTTP-вызовов к определённым эндпоинтам приложения, которые указаны в конфигурации Prometheus. Такой способ получения метрик называется скрейпингом.
+
+![Скрейпинг метрик](./screenshots/1.png)
+
+Prometheus может извлекать метрики следующими способами:
+- При помощи библиотеки Prometheus внутри приложения. Эта библиотека добавит в приложение эндпоинт, по которому будут предоставляться метрики о работе приложения.
+- Использование готовых экспортеров. Экспортер - это уже готовое приложение, которое предназначено для сбора характеристик определённой системы. Например, у Prometheus есть готовые экспортеры для мониторинга машин Linux (Node Exporter), для распространенных баз данных (SQL Exporter или MongoDB Exporter) и даже для балансировщиков нагрузки HTTP (например, HAProxy Exporter).
+- Использование Pushgateway. Это сервис, который позволяет недолговечным заданиям отправлять свои метрики в Prometheus. Он подходит для приложений, которые не могут самостоятельно предоставлять метрики для Prometheus. В этом случае приложение само отдаёт свои метрики и кладёт их в кэш Pushgateway, после чего Prometheus их скрейпит.
+
+Отличием Prometheus от других систем мониторинга является то, что он сам активно сканирует целевые объекты для сбора метрик. В таком случае настройка по сборам метрик выполняется централизованно внутри Prometheus, а не на стороне сканируемых объектов системы.
+
+![Отличительная особенность Prometheus](./screenshots/2.png)
+
+
+### 3. Концепции Prometheus
+
+Метрики в Prometheus описываются парой ключ-значение. Ключ описывает то, что мы измеряем. А значение - фактическую числовую величину той или иной метрики. Кроме этого, у метрики есть тип и текстовое описание. Пример метрики:
+```
+cpu_usage 20.05
+```
+Иногда одного лишь ключа для описания метрики не достаточно. Поэтому, у Prometheus есть дополнительные метаданные, которые описывают метрику. Их называют ярлыками или тэгами. С помощью них можно конкретизировать метрику:
+```
+cpu_usage{core="1"} 20.05
+http_requests_total{method="POST", url="/messages"} 1
+http_requests_total{method="GET", url="/messages"} 3
+http_requests_total{method="POST", url="/login"} 2
+```
+
+- HELP - описание метрики;
+- TYPE - тип метрики;
+- cpu_usage - название метрики;
+- набор key-value лейблов (можно еще называть их тегами);
+- значение метрики (имеет тип double)
+- после сбора метрики в БД добавляется ещё timestamp.
+
+
+### 4. Типы метрик Prometheus
+
+Всего в Prometheus существует 4 типа метрик: Counter, Gauge, Histogram, Summary.
+
+**Counter (Счётчик)**
+
+Counter - является самой простой метрикой. Это монотонно возрастающее число. Никогда не убывает!!! Может быть сброшен в 0 (например, при рестарте сервиса). Можно использовать, например, для подсчёта количества посещений сайта, количества обработанных запросов и т.д.
+
+```
+http_requests_total{url="/login"} 10
+http_requests_total{url="/"} 100
+```
+
+**Gauge (Измеритель)**
+
+Gauge - число, которое может увеличиваться и уменьшаться. Для простоты понимания - этот тип метрик работает как стрелка на спидометре. Хорошо подходит для измерения текущего значения метрики. Можно использовать, например, для измерения количества активных сессий, использования ресурсов сервера (cpu, memory, disk) и т.д.
+
+```
+http_active_requests{app="web"} 5
+disk_free_bytes{path="/tmp/"} 37359484928
+```
+
+**Histogram (Гистограмма)**
+
+Histogram — это более сложный тип метрики. Она предоставляет дополнительную информацию. Например, сумму измерений и их количество. Гистограмма - это агрегация чего-то самим приложением, когда нам интересно знать распределение величин по заранее определенным группам (buckets).
+
+Например, мы хотим знать длительность HTTP-запросов. Определимся, какое время считать хорошим, какое плохим, и насколько детально мы хотим это знать. Можно сказать, качественное распределение:
+
+- `<= 0.1` сек. — хороший запрос, ожидаем, что таких будет большинство;
+
+- `<= 1` — сойдет, но лучше бы знать, что такие встречаются;
+
+- `<= 5` — подозрительно, пойдем смотреть код, если таких окажется много;
+
+- `больше 5` — вообще плохо, для однообразия можно сказать, что это <= infinity.
+
+Как это работает: пришел запрос, померяли время обработки X и обновили гистограмму: добавили +1 в соответствующие группы и добавили +X к суммарному времени. Вот несколько примеров попадания запросов с разным временем в бакеты:
+
+- `0.01` попадет во все бакеты: `<= 0.1`, `<= 1`, `<= 5`, `<= infinity`;
+
+- `0.3` попадет в бакеты кроме первого: `<= 1`, `<= 5`, `<= infinity`. В первый не попадает, т.к. время больше `0.1`;
+
+- `4` попадет в бакеты: `<= 5`, `<= infinity`. В первый и второй не попадает, т.к. время больше `0.1` и `1`;
+
+- `10` попадет только в бакет `<= infinity`. В остальные не попадает, т.к. время больше `0.1`, `1` и `5`.
+
+```
+http_duration_bucket{url="/", le="0.1"} 100
+http_duration_bucket{url="/", le="1"} 130
+http_duration_bucket{url="/", le="5"} 140
+http_duration_bucket{url="/", le="+Inf"} 141
+
+http_duration_sum{url="/"} 152.7625769
+http_duration_count{url="/"} 141
+```
+
+Тэг 'le' означает "less than or equal".
+
+Бонусом гистограмма считает сумму (_sum) и количество (_count) записанных значений.
+
+Гистограмма считает количество попаданий в какую-то группу, то есть запоминает счетчики, а не сами значения! Мы ведь ограничены тем, что метрика сама по себе — это только одно число. Каждый бакет — как бы отдельная метрика.
+
+Гистограммы применяются для характеристик, в которых нужно знать пропорции измеряемых величин.
+
+**Summary (Сводка)**
+
+Summary — это результат агрегации гистограммы. Она выдает сразу квантили, можно сказать, количественное распределение, когда мы заранее не можем определить бакеты.
+
+Квантили — это деление плотности вероятности на отрезки равной вероятности.
+
+Проще всего объяснить на практике: обычно мы заранее не знаем, что считать хорошим временем для запроса, а что плохим. Поэтому просто закинем измеренное время в Summary, и потом посмотрим, во что впишутся 95% запросов. Ну и 50%, и 99% тоже. Итак, пришел запрос, померяли время обработки X, записали в Summary:
+
+- +1 в счетчик количества запросов;
+
+- само время X закинули во множество значений в памяти приложения;
+
+- пересчитали квантили;
+
+- периодически придется выкидывать из памяти старые значения, чтобы не расходовать ее бесконечно.
+
+```
+http_duration_summary{quantile="1"} 100
+http_duration_summary{quantile="0.99"} 4.300226799
+http_duration_summary{quantile="0.95"} 2.204090024
+http_duration_summary{quantile="0.5"} 0.073790038
+http_duration_summary{quantile="0.1"} 0.018127115
+
+http_duration_summary_sum 152.7625769
+http_duration_summary_count 141
+```
+
+Как это интерпретировать? Здесь тоже что-то вроде бакетов, как в гистограмме, но с другим смыслом. Если вкратце, метрика с quantile="0.95" говорит нам, что 95% запросов выполнялись быстрее, чем за 2.2 секунды. Аналогично, 99% запросов выполнялись быстрее, чем 4.3 секунды, и так далее. Как это работает и зачем нужно, станет понятно только после объяснения квантилей, поэтому вернемся к Summary в последней части.
+
+
+### 5. Подключение Spring Boot приложения к Prometheus
+
+Чтобы добавить поддержку сбора метрик при помощи Prometheus в Spring Boot приложение, необходимо добавить в `pom.xml` следующие зависимости:
 ```xml
 <dependency>
-    <groupId>org.projectlombok</groupId>
-    <artifactId>lombok</artifactId>
-    <optional>true</optional>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+    <scope>runtime</scope>
 </dependency>
 ```
-Другие необходимые зависимости:
-```xml
-<parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.1.4</version>
-    <relativePath/>
-</parent>
 
-<dependencies>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-data-mongodb</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>org.projectlombok</groupId>
-        <artifactId>lombok</artifactId>
-        <optional>true</optional>
-    </dependency>
-    <dependency>
-        <groupId>com.github.javafaker</groupId>
-        <artifactId>javafaker</artifactId>
-        <version>1.0.2</version>
-    </dependency>
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-test</artifactId>
-        <scope>test</scope>
-    </dependency>
-</dependencies>
-```
-Не забываем добавить в конфигурацию Spring Maven Plugin исключение этой зависимости при финальной сборке проекта.
-```xml
-<build>
-    <plugins>
-        <plugin>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-maven-plugin</artifactId>
-            <configuration>
-                <excludes>
-                    <exclude>
-                        <groupId>org.projectlombok</groupId>
-                        <artifactId>lombok</artifactId>
-                    </exclude>
-                </excludes>
-            </configuration>
-        </plugin>
-    </plugins>
-</build>
+Для активации эндпоинта приложения с метриками в файл `application.properties` необходимо добавить следующие настройки:
+```conf
+management.endpoints.web.exposure.include=health,prometheus
+management.metrics.export.prometheus.enabled=true
 ```
 
-### 3. Причёсываем приложение
+После добавления этих зависимостей можно запустить приложение. Библиотека `spring-boot-starter-actuator` добавит в приложение эндпоинт `/actuator` по которому будут отображены все доступные эндпоинты для мониторинга приложения.
 
-Первым делом можно причесать класс модели (в моём случае это класс `Book`) в пакете `model`. Удалим все геттеры и сеттеры и метод toString(). Конструктор так же можно удалить. Вместо всего этого поставим аннотации `@NoArgsConstructor`, `@AllArgsConstructor` и `@Data`. Класс будет выглядить таким образом:
-```java
-@Document(collection = "books")
-@NoArgsConstructor
-@AllArgsConstructor
-@Data
-public class Book {
-    @Id
-    private String id;
-    private String title;
-    private String author;
-    private LocalDate published;
-}
-```
-Далее переходим к репозиторию `BookRepo` в пакете `repo`. Удалим из него все ненужные методы, которые мы не используем. В результате будет пустой интерфейс, в котором от родительских интерфейсов остануться методы по умолчанию.
-```java
-@Repository
-public interface BooksRepository extends MongoRepository<Book, String> {}
-```
-После этого можем переместиться в `BookService` в пакете `service` и удалить все неиспользуемые методы. В результате должны остаться только следующие методы:
-```java
-public interface BooksService {
-    Book createBook(Book book);
-    Book getBook(String id);
-    void deleteBook(String id);
-    void saveAllBooks(List<Book> books);
-    Page<Book> getBooks(Pageable pageable);
-}
-```
-Из `BookServiceImpl` тоже все ненужные методы надо удалить. Конструктор тоже удаляем, а аннотацию `@Autowired` помещаем над полем для внедрения зависимости.
-```java
-@Service
-public class BooksServiceImpl implements BooksService {
-    @Autowired
-    private BooksRepository booksRepo;
+![actuator](./screenshots/3.png)
 
-    @Override
-    public Book createBook(Book book) {
-        booksRepo.save(book);
-        return book;
-    }
+Например, перейдя по эндпоинту `/actuator/health` мы получим статус нашего приложения - работает оно или упало.
 
-    @Override
-    public Page<Book> getBooks(Pageable pageable) {
-        Page<Book> books = booksRepo.findAll(pageable);
-        return books;
-    }
+![health](./screenshots/4.png)
 
-    @Override
-    public Book getBook(String id) {
-        return booksRepo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Книга с id=" + id + " не найдена"));
-    }
+Библиотека `micrometer-registry-prometheus` добавляет в актуатор ещё один эндпоинт - `/actuator/prometheus`, по которому располагаются метрики для Prometheus. Обращаясь именно по этому адресу, Prometheus будет забирать метрики. Эта страница уже содержит набор стандартных метрик для Spring приложения.
 
-    @Override
-    public void deleteBook(String id) {
-        booksRepo.deleteById(id);
-    }
+![prometheus](./screenshots/5.png)
 
-    @Override
-    public void saveAllBooks(List<Book> books) {
-        booksRepo.saveAll(books);
-    }
-}
-```
-Для контроллера добавляем аннотацию `@CrossOrigin`, которая позволит через графический интерфейс обращаться к REST-контроллеру.
-```java
-@RestController
-@CrossOrigin
-public class BooksController {
-    @Autowired
-    private BooksService booksService;
 
-    @GetMapping("/books")
-    public Page<Book> getBooksPage(
-            @RequestParam(defaultValue = "0") Integer offset,              // Номер страницы
-            @RequestParam(defaultValue = "10") Integer limit     // Количество элементов на странице
-    ) {
-        return booksService.getBooks(PageRequest.of(offset, limit));
-    }
+### 6. Добавление собственных метрик в Spring Boot приложение
 
-    @GetMapping("/books/{id}")
-    public Book getBooks(@PathVariable String id) {
-        return booksService.getBook(id);
-    }
-
-    @PostMapping("/books")
-    public Book postBook(@RequestBody Book book) {
-        return booksService.createBook(book);
-    }
-
-    @DeleteMapping("/books/{id}")
-    public void deleteBook(@PathVariable String id) {
-        booksService.deleteBook(id);
-    }
-
-    @PutMapping("/books/{id}")
-    public Book putBook(@RequestBody Book newBook, @PathVariable String id) {
-        newBook.setId(id);
-        return booksService.createBook(newBook);
-    }
-}
-```
-Для того, чтобы при запуске приложения база данных заполнялась значениями, создадим пакет `runner` и в нём класс `GenerateBooks`, в котором с помощью библиотеки Java Faker будем задавать значения для наших объектов.
-```java
-@Component
-public class GenerateBooks implements CommandLineRunner {
-    private static final int LIST_SIZE = 1000;
-    private static final SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
-    @Autowired
-    private BooksService booksService;
-
-    @Override
-    public void run(String... args) throws Exception {
-        booksService.saveAllBooks(generateBooks());
-    }
-
-    private List<Book> generateBooks() throws ParseException {
-        Faker faker = new Faker();
-        List<Book> books = new ArrayList<>(LIST_SIZE);
-        for (int i=0; i<LIST_SIZE; i++) {
-            books.add(new Book(
-                    null,
-                    faker.book().title(),
-                    faker.book().author(),
-                    toLocalDate(faker.date().between(
-                        formatter.parse("1900-01-01"),
-                        formatter.parse("2000-01-01"))
-                    )
-            ));
-        }
-        return books;
-    }
-
-    private LocalDate toLocalDate(Date date) {
-        return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
-    }
-}
-```
-Для подключения графического REST-интерфейса к приложению создадим пакет `config` и в нём класс `MvcConfig`. В нём зададим следующую конфигурацию для Spring:
+Помимо стандартных метрик можно добавлять и свои метрики внутри Spring приложения. Для этого есть несколько способов. Воспользуемся одними из них - добавление метрик при помощи библиотечных аннотаций. Для этого способа нам нужно создать конфигурационный класс и инициализировать в нём бины с аспектами тех типов метрик, которые нам нужны.
 ```java
 @Configuration
-public class MvcConfig implements WebMvcConfigurer {
-    @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        registry.addResourceHandler("/").addResourceLocations("classpath:/static/index.html");
-        registry.addResourceHandler("/**").addResourceLocations("classpath:/static/");
+@EnableAspectJAutoProxy(proxyTargetClass = true)
+public class AppConfiguration {
+    @Bean
+    public CountedAspect countedAspect(MeterRegistry registry) {
+        return new CountedAspect(registry);
+    }
+
+    @Bean
+    public TimedAspect timedAspect(MeterRegistry registry) {
+        return new TimedAspect(registry);
     }
 }
 ```
-Переместим файлы графического интерфейса в `elastic-service/src/main/resources/static`. (elastic-service - это название проекта, у вас может быть другое).
 
-### 4. Конфигурация логгирования сервиса
+В данном случае мы инициализировали бины:
+- `CountedAspect` - он позволит нам использовать аннотацию `@Counted`.
+- `TimedAspect` - он позволит нам использовать аннотацию `@Timed`.
 
-Для получения информации о запросах к сервису в логах необходимо добавить ещё две зависимости в файл `pom.xml`:
-```xml
-<dependency>
-    <groupId>org.zalando</groupId>
-    <artifactId>logbook-spring-boot-starter</artifactId>
-    <version>3.7.1</version>
-</dependency>
-<dependency>
-    <groupId>net.logstash.logback</groupId>
-    <artifactId>logstash-logback-encoder</artifactId>
-    <version>6.6</version>
-</dependency>
-```
-По умполчанию логи сервиса выводятся в консоль. В файле `logback-spring.xml` Можно настроить вывод логов для сохранения их в текстовый файл или отправки на удалённый сервер. Создадим этот файл в папке `elastic-service/src/main/resources` и вставим туда следующую конфигурацию:
-```xml
-<configuration>
-    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
-    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+Над конфигурационным классом нужно не забыть добавить аннотацию `@EnableAspectJAutoProxy(proxyTargetClass = true)`.
 
-    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <destination>localhost:4560</destination>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
-    </appender>
-
-    <root level="INFO">org.zalando.logbook.Logbook
-        <appender-ref ref="CONSOLE"/>
-    </root>
-    <logger name="org.zalando.logbook.Logbook" level="TRACE">
-        <appender-ref ref="LOGSTASH"/>
-    </logger>
-</configuration>
-```
-В сервисный слой нашего приложения (класс `BookService`) добавим вывод логов. Для этого добавим аннотацию `@Slf4j` над классом. Во время выполнения каждого из действий сервиса добавим вывод логов уровня INFO. Должно получиться что-то вроде этого:
+Теперь мы можем использовать эти аннотации над методом, метрики которого мы хотим измерить. В качестве примера использую сервис, в котором будет только один метод. Он будет завершаться успешно или исключением в зависимости от переданного в него параметра.
 ```java
-@Slf4j
 @Service
-public class BooksServiceImpl implements BooksService {
-    @Autowired
-    private BooksRepository booksRepo;
+public class ActionService {
+    private final static Logger log = LoggerFactory.getLogger(ActionService.class);
 
-    @Override
-    public Book createBook(Book book) {
-        Book newBook = booksRepo.save(book);
-        log.info("Book created: {}", newBook);
-        return newBook;
-    }
-
-    @Override
-    public Page<Book> getBooks(Pageable pageable) {
-        Page<Book> books = booksRepo.findAll(pageable);
-        log.info("All books requested");
-        return books;
-    }
-
-    @Override
-    public Book getBook(String id) {
-        Book requestedBook = booksRepo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Книга с id=" + id + " не найдена"));
-        log.info("Book requested: {}", requestedBook);
-        return requestedBook;
-    }
-
-    @Override
-    public void deleteBook(String id) {
-        log.info("Deleted book by id: {}", id);
-        booksRepo.deleteById(id);
-    }
-
-    @Override
-    public void saveAllBooks(List<Book> books) {
-        log.info("Saved collection of books");
-        booksRepo.saveAll(books);
+    @Counted(value = "ACTIONS_DONE")
+    @Timed(value = "ACTIONS_TIME")
+    public void doAction(boolean isAction) {
+        if (isAction) {
+            log.info("Action done!!!");
+        } else {
+            log.info("Error done!!!");
+            throw new RuntimeException("Done error!!!");
+        }
     }
 }
 ```
-Для запуска сервиса необходимо запустить образ mongodb в Docker. Для этого создадим папку `docker` в корне проекта. В ней создадим папку `mongo`. Туда поместим файл `docker-compose.yml` со следующим содержимым.
-```yml
-version: "3.7"
+
+Над этим методом вешаем аннотации `@Counted` и `@Timed`. В параметре value для аннотаций указываем название метрики, которую мы измеряем. 
+
+Аннотация `@Counted` является имплементацией метрики Counter и показывает, сколько раз был вызван этот метод.
+
+Аннотация `@Timed` является имплементацией метрики Summary и Gauge и показывает статистику по времени выполнения метода и максимальное время выполнения метода.
+
+Зайдём на эндпоинт `/actuator/prometheus` и посмотрим, каким будет значение данных метрик:
+```
+# HELP ACTIONS_DONE_total  
+# TYPE ACTIONS_DONE_total counter
+ACTIONS_DONE_total{class="com.example.prometheus.ActionService",exception="RuntimeException",method="doAction",result="failure"} 1.0
+ACTIONS_DONE_total{class="com.example.prometheus.ActionService",exception="none",method="doAction",result="success"} 2.0
+# HELP ACTIONS_TIME_seconds  
+# TYPE ACTIONS_TIME_seconds summary
+ACTIONS_TIME_seconds_count{class="com.example.prometheus.ActionService",exception="RuntimeException",method="doAction"} 1
+ACTIONS_TIME_seconds_sum{class="com.example.prometheus.ActionService",exception="RuntimeException",method="doAction"} 0.001156351
+ACTIONS_TIME_seconds_count{class="com.example.prometheus.ActionService",exception="none",method="doAction"} 2
+ACTIONS_TIME_seconds_sum{class="com.example.prometheus.ActionService",exception="none",method="doAction"} 0.001841019
+# HELP ACTIONS_TIME_seconds_max  
+# TYPE ACTIONS_TIME_seconds_max gauge
+ACTIONS_TIME_seconds_max{class="com.example.prometheus.ActionService",exception="RuntimeException",method="doAction"} 0.001156351
+ACTIONS_TIME_seconds_max{class="com.example.prometheus.ActionService",exception="none",method="doAction"} 0.001536961
+```
+
+Видим, что для метрики `ACTIONS_DONE_total` было сделано два counter - один для успешно выполненного метода и один для метода, завершённого ошибкой. Статус завершения метода отображается в тэге `result`. Кроме того, в тэгах представлены другие метаданные по этому методу.
+
+Для метрики `ACTIONS_TIME_seconds` было сделано два summary - аналогично для успешного и неудачного завершения метода.
+
+Кроме того, была создана ещё одна метрика - `ACTIONS_TIME_seconds_max` типа gauge, которая отображает максимальное время выполнения метода для успешного и неудачного завершения метода.
+
+
+### 7. Сбор метрик при помощи Prometheus
+
+В корне проекта создадим папку `docker`. В ней создадим следующую структуру:
+```
+.
+├── docker
+│   ├── docker-compose.yaml
+│   ├── grafana
+│   │   └── grafana_data
+│   └── prometheus
+│       └── prometheus.yaml
+├─...
+...
+```
+
+Для linux и macos нужно убедиться, что аттрибуты доступа у папки `grafana_data` следующие: `rwxrwxrwx`!!! Иначе контейнер с grafana может не запуститься в дальнейшем.
+
+Файл `prometheus.yaml` заполним следующим содержимым:
+```yaml
+scrape_configs:
+  - job_name: 'sample_monitoring'               # Название задачи по сканированию
+    scrape_interval: 5s                         # Интервал, с которым prometheus запрашивает метрики от сервисов
+    metrics_path: '/actuator/prometheus'        # Эндпоинт, по которому запрашиваются метрики
+    static_configs:
+      - targets: 
+        - host.docker.internal:8080             # Сервисы, с которых запрашиваются метрики
+```
+
+`host.docker.internal` - это адрес хоста докера. Так как наше Spring приложение мы запускаем из хостовой операционной системы, а не из докер-контейнера, то указываем здесь именно этот адрес.
+
+- Для Windows и Linux: `host.docker.internal`
+- Для MacOS: `docker.for.mac.localhost`
+
+Файл `docker-compose.yaml` заполним следующим содержимым:
+```yaml
+version: '3.7'
 
 services:
-  mongodb:
-    image: mongo:latest
-    container_name: mongodb
-    restart: always
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=root
-      - MONGO_INITDB_ROOT_PASSWORD=example
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
     ports:
-      - "27017:27017"
-```
-Теперь можно запустить mongodb (через docker compose или черещ docker plugin для IDEA) и сервис и проверить, что вывод логов в консоль работает.
-Важно при запуске закомментировать в файле `logback-spring.xml` строчки (<!-- --> - многострочный комментарий):
-```xml
-<!--
-    <logger name="org.zalando.logbook.Logbook" level="TRACE">
-        <appender-ref ref="LOGSTASH"/>
-    </logger> 
--->
-```
-![Проверка работоспособности приложения](./screenshots/1.png)
-
-### 5. Конфигурация Elastic
-
-Elasic будет состоять из 3х компонентов:
-- Logstash - сервис по сбору логов;
-- ElasticSearch - NoSql хранилище данных и поисковый движок;
-- Kibana - графический интерфейс для Elastic.
-
-В папке `docker` нашего проекта создадим папку `elastic`. Туда добавим файл `docker-compose.yml` со следующим содержимым:
-```yml
-version: "3.7"
-
-services:
-  elasticsearch:
-    image: elasticsearch:8.4.3
-    container_name: elasticsearch
-    environment:
-      - node.name=elasticsearch
-      - xpack.security.enabled=false
-      - xpack.security.authc.api_key.enabled=false
-      - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-    ports:
-      - "9200:9200"
-      - "9300:9300"
-    healthcheck:
-      test: ["CMD-SHELL", "curl --silent --fail localhost:9200/_cluster/health || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-    networks:
-      - elastic
-
-  logstash:
-    image: logstash:8.4.3
-    container_name: logstash
-    environment:
-      discovery.seed_hosts: logstash
-      LS_JAVA_OPTS: "-Xms512m -Xmx512m"
+      - '9090:9090'
     volumes:
-      - ./logstash/logstash.conf:/usr/share/logstash/logstash.conf
-    command: logstash -f /usr/share/logstash/logstash.conf
-    ports:
-      - "5000:5000/tcp"
-      - "5000:5000/udp"
-      - "5044:5044"
-      - "9600:9600"
-      - "4560:4560"
-    depends_on:
-      - elasticsearch
+      - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yaml'
+    # extra_hosts:
+    #   - 'host.docker.internal:host-gateway'
     networks:
-      - elastic
+      - monitoring
 
-  kibana:
-    image: kibana:8.4.3
-    container_name: kibana
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
     ports:
-      - "5601:5601"
-    depends_on:
-      - elasticsearch
+      - '3000:3000'
+    volumes:
+      - ./grafana/grafana_data:/var/lib/grafana:rw
     networks:
-      - elastic
+      - monitoring
 
 networks:
-  elastic:
+  monitoring:
     driver: bridge
 ```
-В этом файле описана конфигурация запуска всех трёх компонентов Elastic. Теперь в той же папке `elastic` нужно создать папку `logstash` и в ней создать файл `logstash.conf`. В этом файле будет описана конфигурация для `logstash`(откуда брать логи, как их преобразовывать и куда их передавать). Содержимое этого файла будет следующим:
+
+В этом файле мы запускаем два контейнера: `prometheus` и `grafana`. Если хостовая ОС - Linux, то нужно раскомментировать закомментированные строчки для правильной работы контейнеров.
+
+Когда вся конфигурация готова - переходим в папку `docker` и выполняем команду, чтобы запустить контейнеры:
+```sh
+docker compose up -d
 ```
-input {
-    tcp {
-        port => 4560
-        codec => json
-    }
-}
 
-filter {
-    json {
-        source => "message"
-        skip_on_invalid_json => true
-    }
-    mutate {
-        remove_field => [ "body" ]
-    }
-}
+После этого стартуем наш сервер на порту 8080.
 
-output {
-    stdout {
-        codec => rubydebug
-    }
+Теперь можем перейти по адресу `localhost:9090` и у нас откроется интерфейс Prometheus.
 
-    elasticsearch {
-        hosts => ["elasticsearch:9200"]
-        index => "service-logs"
-    }
-}
+![Prometheus](./screenshots/6.png)
+
+Проверим, удаётся ли прометеусу подключиться к нашему сервису и считать с него метрики. Для этого в панели меню нужно открыть выпадающий список `Status` и выбрать пункт `Targets`. Откроется страница со статусом по подключенным сервисам. Если в таблице в колонке `State` статус **UP**, то prometheus успешно подключился к нашему приложению.
+
+![Targets](./screenshots/7.png)
+
+Если соединение установлено успешно, можно вернуться на вкладку `Graph` и попробовать посмотреть значение какой-то из метрик. Для этого нужно ввести название метрики в поисковую строку. В ответе появится значение этой метрики
+
+![Graph](./screenshots/8.png)
+
+На вкладке **Graph** под поисковой строкой можно увидеть график изменения метрики. Посмотрим его на примере метрики `jvm_memory_committed_bytes`.
+
+![jvm_memory_committed_bytes](./screenshots/9.png)
+
+Язык запросов, на котором производится поиск в Prometheus называется PromQL. Пример такого запроса может быть следующим. Найдём все значения `jvm_memory_committed_bytes`, у которых id начинается с G1:
 ```
-Теперь можно запустить файл `docker-compose.yml` из папки `elastic`. 
-
-### 6. Просмотр логов сервиса в Kibana
-
-Переходим в графический интерфейс Kibana по адресу `localhost:5601`. Откроется стартовая страница Kibana.
-![Стартовая страница Kibana](./screenshots/2.png)
-
-Далее необходимо открыть меню и перейти на вкладку Discover.
-![Выбор пункта Discover](./screenshots/3.png)
-
-Нажимаем кнопку Create data view
-![Кнопка Create data view](./screenshots/4.png)
-
-Заполняем форму следующими данными и нажимаем кнопку сохранения:
-- Name - название отображаемого data view;
-- Index pattern - метка сервиса, логи которого будут отображаться в data view. Она указывается в файле logstash.conf в параметре index;
-- Timestamp field - выбор поля по которому будет сортироваться время.
-![Создание нового Data view](./screenshots/5.png)
-
-После создания нового data view откроется следующая страница с логами.
-![Страница с логами](./screenshots/6.png)
- 
- Если логи не отобразились, следует выбрать другой временной промежуток (например последние 15 часов) и нажать на кнопку Refresh.
+jvm_memory_committed_bytes{id=~"G1.*"}
+```
 
 
- ### Индивидуальное задание
+### 8. Построение дашбордов в Grafana
 
-- Сделать по вышеописанному примеру программу со своей предметной областью
-- Сделать запросы к веб-сервису по несколько штук со следующими запросами
-    - на добавление данных
-    - на обновление данных
-    - на получение данных
-    - на удаление данных
-    - ошибочный (по несуществующему пути)
-- Запустить Kibana и создать новый Data View
-- Настроить фильтры в Kibana чтобы отображались запросы по следующим параметрам (нужно сделать все пункты):
-    1. Отобразить все поля timestamp и message тех запросов, у которых url не пустой;
-    2. Отобразить все записи, у которых origin=remote;
-    3. Отобразить поля timestamp, status, origin, thread_name и message для тех запросов, у которых origin=local или status=200, либо 201, либо 404.
+Для наглядного представления метрик, аналитического и системного мониторинга существуют системы визуализации данных. Одной из таких является Grafana. При помощи неё можно строить дашборды и отображать на этих дашбордах метрики в наглядном виде. Откроем в браузере `localhost:3000`, на котором запущена Grafana.
+
+При первом заходе откроется форма аутентификации. Учётной записью по-умолчанию является: логин - **admin**, пароль - **admin**. П
+
+После входа в учётную запись будет предложено сменить пароль. Этот шаг можно пропустить, нажав кнопку **Skip**.
+
+В итоге мы попадаем на стартовую страницу Grafana.
+
+![Стартовая страница](./screenshots/10.png)
+
+Для создания нового дашборда нужно в главном меню выбрать вкладку **Dashboards**. В этой вкладке нужно нажать кнопку **Create Dashboards**.
+
+![Dashboards](./screenshots/11.png)
+
+После этого нужно нажать кнопку **Add visualization**. Поскольку мы ещё не подключали Prometheus к Grafana, нужно будет нажать кнопку **Configure New Datasource**. 
+
+![Add data source](./screenshots/12.png)
+
+Grafana умеет работать с разными системами мониторинга и базами данных временных рядов. Здесь нам  нужно выбрать **Prometheus**. На открывшейся вкладке вводим URL-адрес Prometheus - `http://prometheus:9090`.
+
+![Подключение к Prometheus](./screenshots/13.png)
+
+Остальные параметры оставляем по-умолчанию, переходим в нижнюю часть страницы и нажимаем **Save & test**. При успешном подключении появится следующее сообщение.
+
+![Успешное подключение](./screenshots/14.png)
+
+Для создания нового дашборда нужно нажать на ссылку **building a dashboard**. Затем снова нажимаем **Add visualization** и далее выбираем уже созданный источник данных - Prometheus. Откроется панель по созданию новой диаграммы.
+
+![Создание новой диаграммы](./screenshots/15.png)
+
+1. Первым делом выбираем промежуток времени, который нас интересует.
+2. Далее выбираем метрику для вывода на график.
+3. Нажимаем кнопку **Run queries** для запроса данных из Prometheus и отображения их на графике. На панели в правой части можно задать другие параметры графика, например название, описание, тип графика и т.п.
+4. После того, как все нужные параметры заданы, нужно нажать кнопку **Apply** для добавление графика на дашборд.
+
+В результате откроется дашборд со всеми созданными графиками:
+
+![Дашборд с графиками](./screenshots/16.png)
+
+Здесь можно изменять размеры графиков, перемещать, удалять и делать другие манипуляции с графиками.
+
+![Сохранение дашборда](./screenshots/17.png)
+
+1. Для добавления ещё одного графика нужно нажать кнопку **Add** и выбрать пункт **Visualization**.
+2. Для сохранения дашборда необходимо нажать на иконку сохранения. Автоматического сохранения дашборда в Grafana нет.
+
+**ВАЖНО!!!**
+Для автоматического обновления графиков в реальном времени необходимо в настройках дашборда на вкладке General выставить параметр **Refresh live dashboards** и затем выставить интервал обновления как показано на рисунке:
+
+![Автообновление графиков](./screenshots/18.png)
+
+Данные запрашиваются прометеусом каждые 5 секунд, поэтому и графики будут обновляться не чаще чем через этот интервал.
+
+
+### Индивидуальное задание
+
+За основу выполнения работы нужно взять сервис из 3 или 4 лабораторной работы. К нему нужно подключить Prometheus и Grafana, настроить сбор метрик и построить интерактивный дашборд, отражающий работу веб-сервиса.
+
+Алгоритм выполнения работы:
+1. Взять код сервиса из работы 3 или 4
+2. Подключить необходимые maven-зависимости
+3. Настроить конфигурацию мониторинга в файле `application.properties` и создать конфигурационный файл с инициализацией аспектов
+4. Добавить метрики в сервис, которые бы измеряли:
+- Длительность запроса страницы данных из БД
+- Длительность поиска записи в БД
+- Количество добавленных записей
+- Количество изменённых записей
+- Количество удалённых записей
+5. Проверить, что метрики выводятся по эндпоинту `/actuator/prometheus`. Для того, чтобы метрика отображалась при запросе, её значение не должно быть равно 0.
+6. Настроить запуск Prometheus и Grafana в докер-контейнере
+7. Проверить, что метрики сохраняются в Prometheus
+8. Найти значения следующих метрик через поиск в Prometheus:
+- system_cpu_usage
+- logback_events_total, у которых level имеет значение debug
+- http_server_requests_active_seconds_count с методом GET и статусом 200
+9. Отобразить на графиках в Prometheus значения следующих метрик
+- system_cpu_usage
+- http_server_requests_seconds_max
+- jvm_memory_used_bytes
+- суммарное значение jvm_memory_used_bytes, у которых area имеет значение heap
+10. Подключить Grafana к Prometheus
+11. Создать в Grafana дашборд со следующими графиками (можно и нужно делать разные виды/стили/способы отображения графика):
+- Все метрики из пункта 4 (для каждой метрики свой график)
+- system_cpu_usage в виде стрелки (Gauge)
+- jvm_memory_max_bytes area=heap в виде (Bar gauge)
+- http_server_requests_seconds_count по всем URL, кроме /actuator/prometheus
+- другие метрики, которые понравятся
+12. Проверить, что все метрики автоматически обновляются на дашборде
 
 
 ### Содержание отчёта
-
 1. Титульный лист
 2. Цель работы
 3. Код программы (в заголовке название файла)
-4. Скрины демонстрации работы программы:
-    - операции получения, добавления, удаления и изменения данных через графический интерфейс или через POSTMAN;
-    - логи этих операций в консоли;
-    - запущенный графический интерфейс Kibana;
-    - полученный список логов по настроенным фильтрам согласно заданию.
-5. Пояснения по поводу процесса обработки сообщения (что откуда куда передаётся и где сохраняется)
-6. Вывод
+4. Скрин выводимых метрик на эндпоинте `/actuator/prometheus` (не нужно в скрин вставлять все метрики)
+5. Скрины с запросами метрик через графический интерфейс Prometheus (как значения метрики, так и графики)
+6. Скрины построенного дашборда в Grafana.
+7. Вывод
